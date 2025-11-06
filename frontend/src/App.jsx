@@ -151,7 +151,7 @@ export default function App() {
   /* ---------------- SOCKET INIT ---------------- */
   useEffect(() => {
     if (!connected || !name) return;
-    const s = io("http://localhost:5000", { transports: ["websocket"] });
+    const s = io("https://echomeet-1-3sd1.onrender.com", { transports: ["websocket"] });
     socketRef.current = s;
     attachSocketHandlers(s, name);
     return () => safeDisconnect();
@@ -274,7 +274,7 @@ export default function App() {
     setPartnerName(null);
 
     setTimeout(() => {
-      const newSocket = io("http://localhost:5000", { transports: ["websocket"] });
+      const newSocket = io("https://echomeet-1-3sd1.onrender.com", { transports: ["websocket"] });
       socketRef.current = newSocket;
       attachSocketHandlers(newSocket, name);
       setTearingDown(false);
@@ -345,7 +345,7 @@ export default function App() {
 
       {/* Global Toaster */}
       <Toaster
-        position="right-right"
+        position="bottom-right"
         toastOptions={{
           style: {
             background: "#111",
