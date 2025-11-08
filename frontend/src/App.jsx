@@ -396,7 +396,7 @@ export default function App() {
         onRefreshLocation={getLocation}
       />
 
-      <main className="flex-1 flex items-center justify-center pb-6 px-3 sm:px-6 md:px-8 pt-16 sm:pt-20">
+      <main className="flex-1 flex items-center justify-center pb-6 sm:px-6 md:px-8">
         {!connected ? (
           showFaceScan ? (
             <FaceRecognition onVerified={handleFaceVerified} />

@@ -11,8 +11,8 @@ import {
   faXmark,
   faPlay,
   faPause,
+  faTrash
 } from "@fortawesome/free-solid-svg-icons";
-
 const AudioDuration = ({ src }) => {
   const [duration, setDuration] = useState(null);
 
@@ -164,7 +164,13 @@ export default function ChatBox({
 
   const getMsgTimestamp = (m) => {
     const t =
-      m.timestamp ?? m.ts ?? m.at ?? m.createdAt ?? m.time ?? m.date ?? Date.now();
+      m.timestamp ??
+      m.ts ??
+      m.at ??
+      m.createdAt ??
+      m.time ??
+      m.date ??
+      Date.now();
     return typeof t === "number" ? t : new Date(t).getTime();
   };
 
@@ -405,13 +411,36 @@ export default function ChatBox({
             className="flex-1 overflow-y-auto px-4 py-4 space-y-3 custom-scrollbar"
             style={{ background: "rgba(var(--bg),0.3)" }}
           >
-            <h3 className="text-lg font-semibold mb-2">
-              <FontAwesomeIcon
-                icon={faHistory}
-                className="mr-2 text-[rgb(var(--accent-500))]"
-              />
-              Chat History
-            </h3>
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-lg font-semibold flex items-center">
+                <FontAwesomeIcon
+                  icon={faHistory}
+                  className="mr-2 text-[rgb(var(--accent-500))]"
+                />
+                Chat History
+              </h3>
+              {localHistory.length > 0 && (
+                <button
+                  onClick={() => {
+                    sessionStorage.removeItem("chatHistory");
+                    setLocalHistory([]);
+                  }}
+                  className="text-xs font-medium px-3 py-1 border rounded flex items-center gap-2 hover:scale-105 transition"
+                  style={{
+                    background: "rgba(var(--bg),0.5)",
+                    borderColor: "rgb(var(--border))",
+                    color: "rgb(var(--text))",
+                  }}
+                >
+                  <FontAwesomeIcon
+                    icon={faTrash}
+                    className="text-[rgb(var(--accent-500))]"
+                  />
+                  <span>Clear All</span>
+                </button>
+              )}
+            </div>
+
             {localHistory?.length === 0 ? (
               <p
                 className="text-center italic py-6"
@@ -489,7 +518,11 @@ export default function ChatBox({
                       </div>
                     )}
 
-                    <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                    <div
+                      className={`flex ${
+                        mine ? "justify-end" : "justify-start"
+                      }`}
+                    >
                       <div
                         className={`group max-w-[88%] sm:max-w-[80%] rounded-2xl border text-sm sm:text-base ${
                           m.type === "image" || m.type === "video"
@@ -647,7 +680,9 @@ export default function ChatBox({
               type="submit"
               disabled={!msg.trim()}
               className={`btn flex items-center gap-2 ${
-                !msg.trim() ? "opacity-50 cursor-not-allowed" : "hover:scale-105"
+                !msg.trim()
+                  ? "opacity-50 cursor-not-allowed"
+                  : "hover:scale-105"
               }`}
             >
               Send
