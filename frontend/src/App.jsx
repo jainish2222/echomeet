@@ -250,7 +250,7 @@ export default function App() {
   /* ---------------- SOCKET INIT ---------------- */
   useEffect(() => {
     if (!connected || !name || !myGender) return;
-    const s = io("https://echomeet-1-3sd1.onrender.com", { transports: ["websocket"] });
+    const s = io("https://echomeet-2.onrender.com", { transports: ["websocket"] });
     socketRef.current = s;
     attachSocketHandlers(s, name, myGender, myLocation);
     return () => safeDisconnect();
@@ -359,7 +359,7 @@ export default function App() {
     setPartnerLocation(null);
 
     setTimeout(() => {
-      const newSocket = io("https://echomeet-1-3sd1.onrender.com", {
+      const newSocket = io("https://echomeet-2.onrender.com", {
         transports: ["websocket"],
       });
       socketRef.current = newSocket;
