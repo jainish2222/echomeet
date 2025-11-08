@@ -8,27 +8,38 @@ const app = express();
 const server = createServer(app);
 const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] },
+  maxHttpBufferSize: 1e8, // ✅ 100 MB limit
 });
 
 app.use(cors());
 app.get("/", (_, res) => res.send("AnonChat Server Running 🚀"));
 
 /* ---------------------- MATCHING ---------------------- */
-let waitingQueue = []; 
-const activePairs = new Map();
+let waitingQueue = []; // Array of socket IDs
+const activePairs = new Map(); // Map<roomId, { aId, bId }>
 
 io.on("connection", (socket) => {
   console.log("🟢 Connected:", socket.id);
 
-  // runtime stamps
+  // Initialize metadata
   socket.data.name = `User-${socket.id.slice(0, 5)}`;
+  socket.data.gender = "Unknown";
+  socket.data.location = "Unknown";
   socket.data.chatStart = null;
   socket.data.partnerName = null;
   socket.data.videoReady = false;
 
-  socket.on("find-partner", ({ name }) => {
+  /* ---------------------- FIND PARTNER ---------------------- */
+  socket.on("find-partner", ({ name, gender, location }) => {
     socket.data.name = name || `User-${socket.id.slice(0, 5)}`;
+    socket.data.gender = gender || "Unknown";
+    socket.data.location = location || "Unknown";
 
+    console.log(
+      `🔍 ${socket.data.name} (${socket.data.gender}, ${socket.data.location}) is finding a partner...`
+    );
+
+    // Find a waiting partner
     const partnerId = waitingQueue.find((id) => id !== socket.id);
     if (partnerId) {
       waitingQueue = waitingQueue.filter((id) => id !== partnerId);
@@ -55,39 +66,53 @@ io.on("connection", (socket) => {
 
       activePairs.set(roomId, { aId: socket.id, bId: partner.id });
 
+      // ✅ Notify both users with name, gender, and location
       io.to(socket.id).emit("partner-found", {
         roomId,
         partnerName: partner.data.name,
+        partnerGender: partner.data.gender,
+        partnerLocation: partner.data.location,
       });
+
       io.to(partner.id).emit("partner-found", {
         roomId,
         partnerName: socket.data.name,
+        partnerGender: socket.data.gender,
+        partnerLocation: socket.data.location,
       });
 
-      console.log(`✅ Paired: ${socket.data.name} ↔ ${partner.data.name}`);
+      console.log(
+        `✅ Paired: ${socket.data.name} (${socket.data.gender}, ${socket.data.location}) ↔ ${partner.data.name} (${partner.data.gender}, ${partner.data.location})`
+      );
     } else {
       queueUser(socket);
     }
   });
 
-  // text messages
+  /* ---------------------- CHAT HANDLERS ---------------------- */
   socket.on("message", ({ roomId, message, name }) => {
     socket.to(roomId).emit("message", { from: "partner", name, text: message });
   });
 
-  // next
+  socket.on("file-message", ({ roomId, file, name }) => {
+    socket.to(roomId).emit("file-message", {
+      from: "partner",
+      name,
+      ...file,
+    });
+  });
+
+  /* ---------------------- NEXT / END / DISCONNECT ---------------------- */
   socket.on("next", () => {
     handleLeave(socket);
     io.to(socket.id).emit("waiting");
   });
 
-  // end
   socket.on("end", () => {
     handleLeave(socket, { requeueCaller: false });
     console.log(`❌ Ended by: ${socket.data.name || socket.id}`);
   });
 
-  // disconnect
   socket.on("disconnect", () => {
     waitingQueue = waitingQueue.filter((id) => id !== socket.id);
     handleLeave(socket, { requeueCaller: false });
@@ -95,7 +120,6 @@ io.on("connection", (socket) => {
   });
 
   /* ---------------------- VIDEO SIGNALING ---------------------- */
-
   socket.on("start-video", ({ roomId }) => {
     const pair = activePairs.get(roomId);
     if (!pair) return;
@@ -105,7 +129,7 @@ io.on("connection", (socket) => {
     const partner = io.sockets.sockets.get(partnerId);
 
     if (partner?.data?.videoReady) {
-      // deterministic caller selection to avoid glare
+      // Deterministic caller selection
       const callerId = [socket.id, partnerId].sort()[0];
       const calleeId = callerId === socket.id ? partnerId : socket.id;
 
@@ -139,13 +163,14 @@ io.on("connection", (socket) => {
   });
 });
 
-/* ---------------------- Helpers ---------------------- */
-
+/* ---------------------- HELPERS ---------------------- */
 function queueUser(socket) {
   if (!waitingQueue.includes(socket.id)) {
     waitingQueue.push(socket.id);
     io.to(socket.id).emit("waiting");
-    console.log(`⌛ ${socket.data.name} is waiting...`);
+    console.log(
+      `⌛ ${socket.data.name} (${socket.data.gender}, ${socket.data.location}) is waiting...`
+    );
   }
 }
 
@@ -167,18 +192,24 @@ function handleLeave(socket, opts = { requeueCaller: true }) {
 
   const partner = io.sockets.sockets.get(partnerId);
   const endTime = Date.now();
-
   const socketDuration = socket.data.chatStart ? endTime - socket.data.chatStart : 0;
+
   io.to(socket.id).emit("chat-summary", {
     partnerName: partner?.data?.name || "Unknown",
+    partnerGender: partner?.data?.gender || "Unknown",
+    partnerLocation: partner?.data?.location || "Unknown",
     durationMs: socketDuration,
     endedAt: endTime,
   });
 
   if (partner) {
-    const partnerDuration = partner.data.chatStart ? endTime - partner.data.chatStart : socketDuration;
+    const partnerDuration = partner.data.chatStart
+      ? endTime - partner.data.chatStart
+      : socketDuration;
     io.to(partner.id).emit("chat-summary", {
       partnerName: socket?.data?.name || "Unknown",
+      partnerGender: socket?.data?.gender || "Unknown",
+      partnerLocation: socket?.data?.location || "Unknown",
       durationMs: partnerDuration,
       endedAt: endTime,
     });
@@ -186,6 +217,7 @@ function handleLeave(socket, opts = { requeueCaller: true }) {
     partner.data.videoReady = false;
   }
 
+  // cleanup
   const socketsInRoom = io.sockets.adapter.rooms.get(foundRoomId);
   if (socketsInRoom) {
     for (const id of socketsInRoom) {
@@ -198,6 +230,7 @@ function handleLeave(socket, opts = { requeueCaller: true }) {
       }
     }
   }
+
   activePairs.delete(foundRoomId);
 
   if (opts.requeueCaller) {
@@ -205,5 +238,6 @@ function handleLeave(socket, opts = { requeueCaller: true }) {
   }
 }
 
+/* ---------------------- SERVER START ---------------------- */
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log("✅ Backend running on port", PORT));

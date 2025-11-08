@@ -1,20 +1,61 @@
 import React, { useState, useRef, useEffect, Fragment } from "react";
+import * as Tone from "tone"; // 🎧 Enhanced Audio
 import VideoBox from "./VideoBox";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faClock,
-  faRobot,
-  faComments,
   faHistory,
   faArrowRightRotate,
   faStop,
+  faPaperclip,
+  faXmark,
+  faPlay,
+  faPause,
 } from "@fortawesome/free-solid-svg-icons";
+
+const AudioDuration = ({ src }) => {
+  const [duration, setDuration] = useState(null);
+
+  useEffect(() => {
+    if (!src) return;
+    const audio = new Audio(src);
+    audio.addEventListener("loadedmetadata", () => {
+      const dur = audio.duration;
+      if (!isNaN(dur)) setDuration(formatTime(dur));
+    });
+    return () => {
+      audio.remove();
+    };
+  }, [src]);
+
+  const formatTime = (secs) => {
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60)
+      .toString()
+      .padStart(2, "0");
+    return `${m}:${s}`;
+  };
+
+  return (
+    <span
+      className="text-xs font-medium"
+      style={{
+        color: "rgb(var(--muted))",
+        minWidth: "32px",
+        textAlign: "right",
+      }}
+    >
+      {duration || "0:00"}
+    </span>
+  );
+};
 
 export default function ChatBox({
   name,
   partnerName,
   messages,
   onSend,
+  onSendFile,
   onNext,
   onEnd,
   history,
@@ -24,69 +65,107 @@ export default function ChatBox({
   videoActive,
   onStartVideo,
   onStopVideo,
-  botWorking = false,
   sessionStartAt,
+  gender,
+  location,
 }) {
   const [msg, setMsg] = useState("");
   const [showHistory, setShowHistory] = useState(false);
+  const [previewFile, setPreviewFile] = useState(null);
+  const [playingAudio, setPlayingAudio] = useState(null);
+  const [localHistory, setLocalHistory] = useState([]);
+  const fileInputRef = useRef(null);
 
-  // ---------- Auto-scroll ----------
+  // 🎧 Initialize Tone.js once
+  useEffect(() => {
+    Tone.start().catch(() => {});
+  }, []);
+
+  // 🧹 Keep chat history even on reload (don’t clear it)
+  useEffect(() => {
+    const nav = performance.getEntriesByType("navigation")[0];
+    if (nav?.type === "reload") {
+      const keep = sessionStorage.getItem("chatHistory");
+      sessionStorage.clear();
+      if (keep) sessionStorage.setItem("chatHistory", keep);
+      console.log("🧹 Session cleared except history");
+    }
+  }, []);
+
+  // Auto-scroll to bottom on message update
   const messagesEndRef = useRef(null);
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // ---------- Session timer ----------
+  // ⏱️ Session timer
   const [sessionElapsedMs, setSessionElapsedMs] = useState(0);
   const sessionStart = sessionStartAt
     ? new Date(sessionStartAt).getTime()
     : Date.now();
-
   useEffect(() => {
     const base = sessionStart;
     const tick = () => setSessionElapsedMs(Date.now() - base);
-    tick();
     const id = setInterval(tick, 1000);
+    tick();
     return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionStartAt]);
 
-  // ---------- Bot timer ----------
-  const [botStartMs, setBotStartMs] = useState(null);
-  const [botElapsedMs, setBotElapsedMs] = useState(0);
-
+  // 🗂 Load saved history initially
   useEffect(() => {
-    let id;
-    if (botWorking) {
-      const start = botStartMs ?? Date.now();
-      setBotStartMs(start);
-      const tick = () => setBotElapsedMs(Date.now() - start);
-      tick();
-      id = setInterval(tick, 250);
-    } else {
-      setBotStartMs(null);
-      setBotElapsedMs(0);
-    }
-    return () => id && clearInterval(id);
-  }, [botWorking, botStartMs]);
+    const stored = JSON.parse(sessionStorage.getItem("chatHistory") || "[]");
+    setLocalHistory(stored);
+  }, []);
 
-  // ---------- Helpers ----------
+  // 🗂 Reload history whenever "History" view opens
+  useEffect(() => {
+    if (showHistory) {
+      const stored = JSON.parse(sessionStorage.getItem("chatHistory") || "[]");
+      setLocalHistory(stored);
+    }
+  }, [showHistory]);
+
+  // 💾 Save chat info
+  const saveChatHistory = () => {
+    if (!partnerName) return;
+
+    const prev = JSON.parse(sessionStorage.getItem("chatHistory") || "[]");
+
+    const newEntry = {
+      partnerName: partnerName || "Unknown",
+      gender: gender || "Unknown",
+      location: location || "Unknown",
+      durationMs: sessionElapsedMs,
+      endedAt: new Date().toISOString(),
+    };
+
+    // Remove duplicates
+    const filtered = prev.filter(
+      (h) =>
+        !(
+          h.partnerName === newEntry.partnerName &&
+          h.gender === newEntry.gender &&
+          Math.abs(new Date(h.endedAt) - new Date(newEntry.endedAt)) < 3000
+        )
+    );
+
+    const updated = [newEntry, ...filtered].slice(0, 50);
+    sessionStorage.setItem("chatHistory", JSON.stringify(updated));
+    setLocalHistory(updated);
+  };
+
+  // Helpers
   const formatHMS = (ms) => {
     const total = Math.max(0, Math.floor(ms / 1000));
-    const h = Math.floor(total / 3600);
     const m = Math.floor((total % 3600) / 60);
     const s = total % 60;
-    const two = (n) => String(n).padStart(2, "0");
-    return h > 0 ? `${h}:${two(m)}:${two(s)}` : `${two(m)}:${two(s)}`;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   };
 
   const getMsgTimestamp = (m) => {
-    const candidate =
-      m?.timestamp ?? m?.ts ?? m?.at ?? m?.createdAt ?? m?.time ?? m?.date;
-    if (candidate == null) return Date.now();
-    return typeof candidate === "number"
-      ? candidate
-      : new Date(candidate).getTime();
+    const t =
+      m.timestamp ?? m.ts ?? m.at ?? m.createdAt ?? m.time ?? m.date ?? Date.now();
+    return typeof t === "number" ? t : new Date(t).getTime();
   };
 
   const sameDay = (a, b) => {
@@ -114,6 +193,7 @@ export default function ChatBox({
     });
   };
 
+  // 📤 Send Message
   const handleSend = (e) => {
     e.preventDefault();
     if (!msg.trim()) return;
@@ -121,10 +201,85 @@ export default function ChatBox({
     setMsg("");
   };
 
+  // 📎 Send File
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      alert("❌ File must be less than 10 MB!");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      let type = "file";
+      if (file.type.startsWith("image")) type = "image";
+      else if (file.type.startsWith("video")) type = "video";
+      else if (file.type.startsWith("audio")) type = "audio";
+
+      onSendFile({
+        type,
+        data: reader.result,
+        name: file.name,
+        mime: file.type,
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // 🎧 Enhanced Audio Playback
+  const playEnhancedAudio = async (url, msgId) => {
+    try {
+      await Tone.start();
+      if (playingAudio?.msgId === msgId) {
+        playingAudio.player.stop();
+        setPlayingAudio(null);
+        return;
+      }
+
+      playingAudio?.player?.stop?.();
+      const player = new Tone.Player(url).toDestination();
+      const eq = new Tone.EQ3(-3, 4, 5);
+      const comp = new Tone.Compressor(-15, 6);
+      player.chain(eq, comp, Tone.Destination);
+
+      player.autostart = true;
+      setPlayingAudio({ msgId, player });
+      player.onstop = () => setPlayingAudio(null);
+    } catch (e) {
+      console.error("Audio error:", e);
+    }
+  };
+
+  const closePreview = () => setPreviewFile(null);
+
   return (
-    <div className="w-full max-w-6xl mx-auto sm:pt-24 flex flex-col lg:flex-row gap-6">
+    <div className="w-full max-w-6xl mx-auto sm:pt-20 flex flex-col lg:flex-row gap-4 sm:gap-6 relative">
+      <style>
+        {`
+          @keyframes waveMove {
+            0%, 100% { transform: scaleY(0.4); opacity: 0.6; }
+            50% { transform: scaleY(1.3); opacity: 1; }
+          }
+          .animate-wave {
+            animation: waveMove 1.2s ease-in-out infinite;
+          }
+          .paused-wave {
+            opacity: 0.4;
+            transform: scaleY(0.5);
+            animation: none;
+          }
+        `}
+      </style>
+
       {/* RIGHT: VIDEO BOX */}
-      <div className="w-full lg:w-[29%] bg-black/40 rounded-2xl shadow-lg border border-gray-800 flex flex-col items-center p-4">
+      <div
+        className="w-full lg:w-[29%] rounded-2xl shadow-lg border flex flex-col items-center p-3 sm:p-4"
+        style={{
+          background: "rgba(var(--surface),0.8)",
+          borderColor: "rgb(var(--border))",
+        }}
+      >
         <VideoBox
           localStream={localStream}
           remoteStream={remoteStream}
@@ -137,187 +292,400 @@ export default function ChatBox({
       </div>
 
       {/* LEFT: CHAT */}
-      <div className="flex-1 flex flex-col bg-black/40 rounded-2xl shadow-lg overflow-hidden border border-gray-800">
+      <div
+        className="flex-1 flex flex-col rounded-2xl shadow-lg overflow-hidden border"
+        style={{
+          background: "rgba(var(--surface),0.8)",
+          borderColor: "rgb(var(--border))",
+        }}
+      >
         {/* Header */}
-        <div className="px-4 py-3 flex flex-wrap gap-2 justify-between items-center border-b border-gray-800">
-          <h2 className="text-lg font-semibold truncate">
-            Chatting with{" "}
-            <span className="text-[rgb(var(--accent-500))]">
-              {partnerName || "..."}
-            </span>
+        <div
+          className="px-3 sm:px-4 py-3 flex flex-wrap justify-between items-center border-b"
+          style={{ borderColor: "rgb(var(--border))" }}
+        >
+          <h2 className="text-base sm:text-lg font-semibold truncate">
+            {showHistory ? (
+              <>
+                <FontAwesomeIcon icon={faHistory} /> History
+              </>
+            ) : (
+              <>
+                Chatting with{" "}
+                <span
+                  style={{
+                    color:
+                      gender === "Female"
+                        ? "#db2777"
+                        : gender === "Male"
+                        ? "#3b82f6"
+                        : "rgb(var(--accent-500))",
+                  }}
+                >
+                  {partnerName || "..."}
+                </span>
+                {gender && (
+                  <span
+                    className="ml-2 text-xs font-medium uppercase tracking-wide px-2 py-[2px] rounded"
+                    style={{
+                      background:
+                        gender === "Female"
+                          ? "rgba(219,39,119,0.2)"
+                          : "rgba(59,130,246,0.2)",
+                      color: gender === "Female" ? "#db2777" : "#3b82f6",
+                    }}
+                  >
+                    {gender}
+                  </span>
+                )}
+                {location && (
+                  <span
+                    className="ml-2 text-xs"
+                    style={{ color: "rgb(var(--muted))" }}
+                  >
+                    📍 {location}
+                  </span>
+                )}
+              </>
+            )}
           </h2>
 
-          <div className="flex items-center gap-3">
-            {/* Live session timer */}
-            <span className="text-xs px-2 py-1 rounded bg-gray-900/60 border border-gray-800 flex items-center gap-1">
-              <FontAwesomeIcon icon={faClock} />
-              {formatHMS(sessionElapsedMs)}
-            </span>
-
+          <div className="flex items-center gap-2 sm:gap-3">
+            {!showHistory && (
+              <span
+                className="text-[11px] sm:text-xs px-2 py-1 rounded border flex items-center gap-1"
+                style={{
+                  background: "rgba(var(--bg),0.45)",
+                  borderColor: "rgb(var(--border))",
+                  color: "rgb(var(--text))",
+                }}
+              >
+                <FontAwesomeIcon icon={faClock} />
+                {formatHMS(sessionElapsedMs)}
+              </span>
+            )}
             <button
-              onClick={() => setShowHistory((prev) => !prev)}
+              onClick={() => setShowHistory((v) => !v)}
               className="btn-ghost flex items-center gap-1"
+              style={{ color: "rgb(var(--text))" }}
             >
               <FontAwesomeIcon icon={faHistory} />
               {showHistory ? "Hide History" : "History"}
             </button>
-
-            <button onClick={onNext} className="btn flex items-center gap-1">
-              <FontAwesomeIcon icon={faArrowRightRotate} />
-              Next
-            </button>
-
-            <button
-              onClick={onEnd}
-              className="btn-ghost flex items-center gap-1"
-            >
-              <FontAwesomeIcon icon={faStop} />
-              End
-            </button>
+            {!showHistory && (
+              <>
+                <button
+                  onClick={() => {
+                    saveChatHistory();
+                    onNext();
+                  }}
+                  className="btn flex items-center gap-1"
+                >
+                  <FontAwesomeIcon icon={faArrowRightRotate} />
+                  Next
+                </button>
+                <button
+                  onClick={() => {
+                    saveChatHistory();
+                    onEnd();
+                  }}
+                  className="btn-ghost flex items-center gap-1"
+                >
+                  <FontAwesomeIcon icon={faStop} />
+                  End
+                </button>
+              </>
+            )}
           </div>
         </div>
 
-        {/* Bot Working Banner */}
-        {botWorking && (
-          <div className="px-4 py-2 text-xs border-b border-gray-800 bg-gray-900/50 flex items-center gap-2">
-            <FontAwesomeIcon
-              icon={faRobot}
-              className="text-[rgb(var(--accent-500))] animate-pulse"
-            />
-            <span className="text-gray-300">
-              Bot working…{" "}
-              <span className="font-mono">{formatHMS(botElapsedMs)}</span>
-            </span>
-          </div>
-        )}
-
-        {/* Messages */}
-        <div
-          className="flex-1 overflow-y-auto scroll-smooth px-4 py-3 space-y-3 custom-scrollbar"
-          style={{
-            maxHeight: "calc(100vh - 300px)",
-          }}
-        >
-          {messages.length === 0 ? (
-            <div className="text-center text-gray-400 mt-10 italic flex items-center justify-center gap-1">
-              Say hi to {partnerName || "your partner"}
+        {/* History View */}
+        {showHistory ? (
+          <div
+            className="flex-1 overflow-y-auto px-4 py-4 space-y-3 custom-scrollbar"
+            style={{ background: "rgba(var(--bg),0.3)" }}
+          >
+            <h3 className="text-lg font-semibold mb-2">
               <FontAwesomeIcon
-                icon={faComments}
-                className="text-[rgb(var(--accent-500))]"
+                icon={faHistory}
+                className="mr-2 text-[rgb(var(--accent-500))]"
               />
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {messages.map((m, i) => {
+              Chat History
+            </h3>
+            {localHistory?.length === 0 ? (
+              <p
+                className="text-center italic py-6"
+                style={{ color: "rgb(var(--muted))" }}
+              >
+                No previous chats yet.
+              </p>
+            ) : (
+              localHistory.map((h, i) => (
+                <div
+                  key={i}
+                  className="rounded-xl border px-4 py-3 hover:scale-[1.02] transition"
+                  style={{
+                    borderColor: "rgb(var(--border))",
+                    background: "rgba(var(--surface),0.9)",
+                  }}
+                >
+                  <div className="flex justify-between">
+                    <span
+                      style={{
+                        color:
+                          h.gender === "Female"
+                            ? "#db2777"
+                            : h.gender === "Male"
+                            ? "#3b82f6"
+                            : "rgb(var(--accent-500))",
+                      }}
+                      className="font-medium"
+                    >
+                      {h.partnerName} ({h.gender})
+                    </span>
+                    <span
+                      className="text-xs"
+                      style={{ color: "rgb(var(--muted))" }}
+                    >
+                      {Math.floor(h.durationMs / 60000)}m{" "}
+                      {Math.floor((h.durationMs % 60000) / 1000)}s
+                    </span>
+                  </div>
+                  <p
+                    className="text-xs mt-1"
+                    style={{ color: "rgb(var(--muted))" }}
+                  >
+                    📍 {h.location} <br />
+                    {new Date(h.endedAt).toLocaleString()}
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
+        ) : (
+          <div
+            className="flex-1 overflow-y-auto px-4 py-3 space-y-4 custom-scrollbar"
+            style={{ maxHeight: "calc(100vh - 320px)" }}
+          >
+            {messages.length === 0 ? (
+              <p
+                className="text-center italic mt-10"
+                style={{ color: "rgb(var(--muted))" }}
+              >
+                Say hi to {partnerName || "your partner"} 👋
+              </p>
+            ) : (
+              messages.map((m, i) => {
                 const mine = m.from === "me";
                 const timeMs = getMsgTimestamp(m);
                 const prev = i > 0 ? getMsgTimestamp(messages[i - 1]) : null;
                 const showDay = !prev || !sameDay(timeMs, prev);
 
                 return (
-                  <Fragment key={`frag-${i}`}>
+                  <Fragment key={i}>
                     {showDay && (
-                      <div className="flex items-center gap-2 my-2">
-                        <div className="h-px bg-gray-800 flex-1" />
-                        <span className="text-[10px] text-gray-400 uppercase tracking-wider">
-                          {humanDayLabel(timeMs)}
-                        </span>
-                        <div className="h-px bg-gray-800 flex-1" />
+                      <div className="text-center text-[10px] text-[rgb(var(--muted))] my-2">
+                        {humanDayLabel(timeMs)}
                       </div>
                     )}
 
-                    <div
-                      className={`flex ${
-                        mine ? "justify-end" : "justify-start"
-                      }`}
-                    >
+                    <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                       <div
-                        className={`group max-w-[85%] sm:max-w-[80%] rounded-2xl border text-sm sm:text-base ${
-                          mine
-                            ? "bg-[rgb(var(--accent-500))] text-gray-900 border-[rgb(var(--accent-600))]"
-                            : "bg-gray-800/70 text-gray-100 border-gray-700"
+                        className={`group max-w-[88%] sm:max-w-[80%] rounded-2xl border text-sm sm:text-base ${
+                          m.type === "image" || m.type === "video"
+                            ? "border-none p-0"
+                            : ""
                         }`}
+                        style={{
+                          background:
+                            m.type === "image" || m.type === "video"
+                              ? "transparent"
+                              : mine
+                              ? "rgb(var(--accent-500))"
+                              : "rgba(var(--bg),0.6)",
+                          color: mine ? "#111" : "rgb(var(--text))",
+                          borderColor:
+                            m.type === "image" || m.type === "video"
+                              ? "transparent"
+                              : mine
+                              ? "rgb(var(--accent-600))"
+                              : "rgb(var(--border))",
+                        }}
                       >
-                        <div className="px-3 text-sm py-1 max-h-48 overflow-y-auto leading-relaxed">
-                          <span className="whitespace-pre-wrap break-words block">
-                            {m.text}
-                          </span>
+                        <div className="px-3 py-1 space-y-1">
+                          {m.type === "image" && (
+                            <img
+                              src={m.data}
+                              alt={m.name}
+                              onClick={() => setPreviewFile(m)}
+                              className="max-w-[150px] sm:max-w-[200px] rounded-lg cursor-pointer hover:scale-105 transition"
+                              style={{ display: "block", objectFit: "cover" }}
+                            />
+                          )}
+
+                          {m.type === "video" && (
+                            <video
+                              src={m.data}
+                              muted
+                              onClick={() => setPreviewFile(m)}
+                              className="max-w-[180px] sm:max-w-[240px] rounded-lg cursor-pointer hover:scale-105 transition"
+                              style={{ display: "block", objectFit: "cover" }}
+                            />
+                          )}
+
+                          {m.type === "audio" && (
+                            <div
+                              className="flex items-center gap-3 px-3 py-2 rounded-lg border w-[170px] sm:w-[220px]"
+                              style={{
+                                background: mine
+                                  ? "rgba(255,255,255,0.25)"
+                                  : "rgba(var(--bg),0.5)",
+                                borderColor: mine
+                                  ? "rgba(255,255,255,0.35)"
+                                  : "rgb(var(--border))",
+                              }}
+                            >
+                              <button
+                                onClick={() =>
+                                  playEnhancedAudio(m.data, m.id || i)
+                                }
+                                className="p-2 rounded-full flex items-center justify-center"
+                                style={{
+                                  background: mine
+                                    ? "rgba(255,255,255,0.7)"
+                                    : "rgb(var(--accent-500))",
+                                  color: mine ? "rgb(24,24,24)" : "#111",
+                                }}
+                              >
+                                <FontAwesomeIcon
+                                  icon={
+                                    playingAudio?.msgId === (m.id || i)
+                                      ? faPause
+                                      : faPlay
+                                  }
+                                />
+                              </button>
+
+                              <div className="flex-1 flex items-center gap-[2px] h-[20px] relative">
+                                {[...Array(20)].map((_, j) => (
+                                  <div
+                                    key={j}
+                                    className={`w-[2px] rounded-full ${
+                                      mine
+                                        ? "bg-[rgba(255,255,255,0.9)]"
+                                        : "bg-[rgb(var(--accent-500))]"
+                                    } ${
+                                      playingAudio?.msgId === (m.id || i)
+                                        ? "animate-wave"
+                                        : "paused-wave"
+                                    }`}
+                                    style={{
+                                      height: `${6 + Math.random() * 14}px`,
+                                      animationDelay: `${j * 0.05}s`,
+                                    }}
+                                  />
+                                ))}
+                              </div>
+
+                              <AudioDuration src={m.data} />
+                            </div>
+                          )}
+
+                          {m.text && (
+                            <span className="whitespace-pre-wrap break-words block">
+                              {m.text}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
                   </Fragment>
                 );
-              })}
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input */}
-        <form
-          onSubmit={handleSend}
-          className="flex items-center gap-2 p-3 border-t border-gray-800 bg-black/40 mt-auto"
-        >
-          <input
-            type="text"
-            value={msg}
-            onChange={(e) => setMsg(e.target.value)}
-            placeholder="Type a message…"
-            className="input flex-1"
-          />
-          <button
-            type="submit"
-            disabled={!msg.trim()} // ✅ disable when empty or whitespace only
-            className={`btn flex items-center gap-2 transition-all duration-200 ${
-              !msg.trim() ? "opacity-50 cursor-not-allowed" : "hover:scale-105"
-            }`}
-          >
-            Send
-          </button>
-        </form>
-
-        {/* History */}
-        {showHistory && (
-          <div className="bg-black/40 border-t border-gray-800 p-3 h-48 overflow-y-auto">
-            <h3 className="text-md font-semibold mb-3 flex items-center gap-2">
-              <FontAwesomeIcon icon={faClock} />
-              Recent Chats
-              <span className="badge">Total {history.length}</span>
-            </h3>
-
-            {history.length === 0 ? (
-              <p className="text-gray-400 text-sm italic">
-                No previous chats yet.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {history.map((chat, i) => (
-                  <li
-                    key={i}
-                    className="flex justify-between items-center px-3 py-2 bg-gray-900/60 rounded-lg border border-gray-800 hover:bg-gray-900 transition"
-                  >
-                    <div>
-                      <p className="text-sm font-semibold text-[rgb(var(--accent-500))]">
-                        {chat.partnerName}
-                      </p>
-                      <p className="text-xs text-gray-400">
-                        {new Date(chat.endedAt).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}{" "}
-                        • {(chat.durationMs / 1000).toFixed(0)} sec
-                      </p>
-                    </div>
-                    <span className="text-xs text-gray-500">
-                      #{history.length - i}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              })
             )}
+            <div ref={messagesEndRef} />
           </div>
         )}
+
+        {/* Input */}
+        {!showHistory && (
+          <form
+            onSubmit={handleSend}
+            className="flex items-center gap-2 p-3 border-t"
+            style={{
+              borderColor: "rgb(var(--border))",
+              background: "rgba(var(--surface),0.85)",
+            }}
+          >
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => fileInputRef.current.click()}
+            >
+              <FontAwesomeIcon icon={faPaperclip} />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,video/*,audio/*"
+              onChange={handleFileChange}
+              hidden
+            />
+            <input
+              type="text"
+              value={msg}
+              onChange={(e) => setMsg(e.target.value)}
+              placeholder="Type a message…"
+              className="input flex-1"
+              style={{
+                background: "rgba(var(--bg),0.4)",
+                color: "rgb(var(--text))",
+                border: "1px solid rgb(var(--border))",
+              }}
+            />
+            <button
+              type="submit"
+              disabled={!msg.trim()}
+              className={`btn flex items-center gap-2 ${
+                !msg.trim() ? "opacity-50 cursor-not-allowed" : "hover:scale-105"
+              }`}
+            >
+              Send
+            </button>
+          </form>
+        )}
       </div>
+
+      {/* Preview */}
+      {previewFile && (
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50"
+          style={{ background: "rgba(0,0,0,0.9)" }}
+        >
+          <button
+            onClick={closePreview}
+            className="absolute top-4 right-4 text-3xl text-white"
+          >
+            <FontAwesomeIcon icon={faXmark} />
+          </button>
+          <div className="max-w-4xl max-h-[90vh] overflow-auto">
+            {previewFile.type === "image" && (
+              <img
+                src={previewFile.data}
+                alt={previewFile.name}
+                className="max-w-full max-h-[90vh] rounded-lg"
+              />
+            )}
+            {previewFile.type === "video" && (
+              <video
+                controls
+                src={previewFile.data}
+                className="max-w-full max-h-[90vh] rounded-lg"
+              />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
