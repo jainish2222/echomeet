@@ -11,7 +11,7 @@ import {
   faXmark,
   faPlay,
   faPause,
-  faTrash
+  faTrash,
 } from "@fortawesome/free-solid-svg-icons";
 const AudioDuration = ({ src }) => {
   const [duration, setDuration] = useState(null);
@@ -305,48 +305,56 @@ export default function ChatBox({
           borderColor: "rgb(var(--border))",
         }}
       >
-        {/* Header */}
+        {/* HEADER SECTION */}
         <div
-          className="px-3 sm:px-4 py-3 flex flex-wrap justify-between items-center border-b"
+          className="w-full flex flex-col items-center justify-center text-center border-b sm:px-4 py-2 sm:py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-3 bg-[rgba(var(--surface),0.85)]"
           style={{ borderColor: "rgb(var(--border))" }}
         >
-          <h2 className="text-base sm:text-lg font-semibold truncate">
+          {/* LEFT SIDE: Partner Info */}
+        <div className="flex flex-wrap items-center gap-1 sm:gap-2 text-sm sm:text-base font-semibold truncate text-center">
             {showHistory ? (
-              <>
-                <FontAwesomeIcon icon={faHistory} /> History
-              </>
+              <div className="flex items-center gap-2">
+                <FontAwesomeIcon icon={faHistory} />
+                <span>History</span>
+              </div>
             ) : (
               <>
-                Chatting with{" "}
-                <span
-                  style={{
-                    color:
-                      gender === "Female"
-                        ? "#db2777"
-                        : gender === "Male"
-                        ? "#3b82f6"
-                        : "rgb(var(--accent-500))",
-                  }}
-                >
-                  {partnerName || "..."}
+                <span className="truncate">
+                  Chatting with{" "}
+                  <span
+                    style={{
+                      color:
+                        gender === "Female"
+                          ? "#db2777"
+                          : gender === "Male"
+                          ? "#3b82f6"
+                          : "rgb(var(--accent-500))",
+                    }}
+                  >
+                    {partnerName || "..."}
+                  </span>
                 </span>
+
+                {/* Gender Badge */}
                 {gender && (
                   <span
-                    className="ml-2 text-xs font-medium uppercase tracking-wide px-2 py-[2px] rounded"
+                    className="text-[10px] sm:text-xs font-medium uppercase tracking-wide px-2 py-[2px] rounded"
                     style={{
                       background:
                         gender === "Female"
-                          ? "rgba(219,39,119,0.2)"
-                          : "rgba(59,130,246,0.2)",
+                          ? "rgba(219,39,119,0.15)"
+                          : "rgba(59,130,246,0.15)",
                       color: gender === "Female" ? "#db2777" : "#3b82f6",
                     }}
                   >
                     {gender}
                   </span>
                 )}
+
+                {/* Location */}
                 {location && (
                   <span
-                    className="ml-2 text-xs"
+                    className="text-[11px] sm:text-xs"
                     style={{ color: "rgb(var(--muted))" }}
                   >
                     📍 {location}
@@ -354,40 +362,54 @@ export default function ChatBox({
                 )}
               </>
             )}
-          </h2>
+          </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          {/* RIGHT SIDE: Controls */}
+          <div className="flex flex-wrap justify-end items-center gap-2 sm:gap-3 text-xs sm:text-sm">
+            {/* Timer */}
             {!showHistory && (
               <span
-                className="text-[11px] sm:text-xs px-2 py-1 rounded border flex items-center gap-1"
+                className="flex items-center gap-1 border rounded px-2 py-[2px] sm:py-1"
                 style={{
                   background: "rgba(var(--bg),0.45)",
                   borderColor: "rgb(var(--border))",
                   color: "rgb(var(--text))",
                 }}
               >
-                <FontAwesomeIcon icon={faClock} />
-                {formatHMS(sessionElapsedMs)}
+                <FontAwesomeIcon
+                  icon={faClock}
+                  className="text-[10px] sm:text-xs"
+                />
+                <span className="font-medium">
+                  {formatHMS(sessionElapsedMs)}
+                </span>
               </span>
             )}
+
+            {/* History Toggle */}
             <button
               onClick={() => setShowHistory((v) => !v)}
-              className="btn-ghost flex items-center gap-1"
-              style={{ color: "rgb(var(--text))" }}
+              className="flex items-center gap-1 px-2 py-1 rounded border sm:border-0 sm:btn-ghost text-xs sm:text-sm"
+              style={{
+                color: "rgb(var(--text))",
+                borderColor: "rgb(var(--border))",
+              }}
             >
               <FontAwesomeIcon icon={faHistory} />
-              {showHistory ? "Hide History" : "History"}
+              {showHistory ? "Hide" : "History"}
             </button>
+
+            {/* Action Buttons */}
             {!showHistory && (
-              <>
+              <div className="flex items-center gap-1 sm:gap-2">
                 <button
                   onClick={() => {
                     saveChatHistory();
                     onNext();
                   }}
-                  className="btn flex items-center gap-1"
+                  className="px-3 py-1 sm:px-4 sm:py-1 text-xs sm:text-sm rounded bg-[rgb(var(--accent-500))] text-black font-semibold hover:scale-105 transition"
                 >
-                  <FontAwesomeIcon icon={faArrowRightRotate} />
+                  <FontAwesomeIcon icon={faArrowRightRotate} className="mr-1" />
                   Next
                 </button>
                 <button
@@ -395,12 +417,12 @@ export default function ChatBox({
                     saveChatHistory();
                     onEnd();
                   }}
-                  className="btn-ghost flex items-center gap-1"
+                  className="px-3 py-1 sm:px-4 sm:py-1 text-xs sm:text-sm border border-[rgb(var(--border))] rounded text-[rgb(var(--text))] hover:bg-[rgba(var(--bg),0.3)] transition"
                 >
-                  <FontAwesomeIcon icon={faStop} />
+                  <FontAwesomeIcon icon={faStop} className="mr-1" />
                   End
                 </button>
-              </>
+              </div>
             )}
           </div>
         </div>
@@ -493,7 +515,7 @@ export default function ChatBox({
           </div>
         ) : (
           <div
-            className="flex-1 overflow-y-auto px-4 py-3 space-y-4 custom-scrollbar"
+            className="flex-1 overflow-y-auto px-4 py-48 space-y-4 custom-scrollbar"
             style={{ maxHeight: "calc(100vh - 320px)" }}
           >
             {messages.length === 0 ? (

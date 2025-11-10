@@ -63,7 +63,7 @@ export default function VideoBox({
   };
 
   return (
-    <div className="flex flex-col gap-5 w-full">
+    <div className="flex flex-col gap-5 w-full px-6 md:px-0">
       <div className="flex flex-col gap-4">
         {/* 👤 Local Video */}
         <div

@@ -35,6 +35,24 @@ export default function App() {
 
   // Location
   const [myLocation, setMyLocation] = useState("Fetching location…");
+  /* ---------------- PAGE REFRESH / CLOSE WARNING ---------------- */
+useEffect(() => {
+  const handleBeforeUnload = (e) => {
+    // Show this warning only if user is in an active chat (not waiting or face scan)
+    if (connected && !waiting && !tearingDown) {
+      e.preventDefault();
+      e.returnValue = "Are you sure you want to leave? Your chat will end.";
+      return e.returnValue;
+    }
+  };
+
+  window.addEventListener("beforeunload", handleBeforeUnload);
+
+  return () => {
+    window.removeEventListener("beforeunload", handleBeforeUnload);
+  };
+}, [connected, waiting, tearingDown]);
+
 
   /* ---------------- LOCATION FUNCTIONS ---------------- */
   const fetchLocationFromCoords = async (lat, lon) => {
@@ -80,7 +98,7 @@ export default function App() {
 
   useEffect(() => {
     if (window.innerWidth > 768) getLocation();
-    else setMyLocation("Tap to detect location");
+    else setMyLocation("unknown");
   }, []);
 
   /* ---------------- STEP 1: Handle Face Scan ---------------- */
@@ -396,7 +414,7 @@ export default function App() {
         onRefreshLocation={getLocation}
       />
 
-      <main className="flex-1 flex items-center justify-center pb-6 sm:px-6 md:px-8">
+      <main className="flex-1 flex items-center justify-center pt-20 md:pt-1 pb-6 sm:px-6 md:px-8">
         {!connected ? (
           showFaceScan ? (
             <FaceRecognition onVerified={handleFaceVerified} />
